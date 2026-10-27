@@ -33,6 +33,12 @@ import CancellableTaskManager from './cancellableTaskManager.js';
 import CommandSubprocess from './commandSubprocess.js';
 import CommandHelper from './commandHelper.js';
 import XMLParser from './xmlParser.js';
+import {
+    FilesystemUsage,
+    filesystemUsage,
+    parseZfsMounts,
+    sampleFilesystem,
+} from '../storage/filesystem.js';
 
 type GTop = typeof import('gi://GTop').default;
 
@@ -72,7 +78,9 @@ export type DiskInfo = {
     name: string;
     label: string;
     mountpoints: string[];
-    path: string;
+    path?: string;
+    filesystem?: 'zfs';
+    source?: string;
     children?: DiskInfo[];
 };
 
@@ -2004,11 +2012,13 @@ export default class Utils {
 
         try {
             const path = await Utils.getLsblkPathAsync();
-            if(path === false) return disks;
-            const result = await Utils.runAsyncCommand(
-                `${path}lsblk -J -o ID,NAME,LABEL,MOUNTPOINTS,PATH`,
-                task
-            );
+            const result =
+                path === false
+                    ? null
+                    : await Utils.runAsyncCommand(
+                          `${path}lsblk -J -o ID,NAME,LABEL,MOUNTPOINTS,PATH`,
+                          task
+                      );
             if(result) {
                 const parsedData = JSON.parse(result);
 
@@ -2035,7 +2045,64 @@ export default class Utils {
         } catch(e: any) {
             Utils.error('Error getting disk list async: ' + e, e);
         }
+        try {
+            const mounts = parseZfsMounts(await Utils.readFileAsync('/proc/self/mountinfo'));
+            for(const mount of mounts) {
+                disks.set(mount.id, {
+                    id: mount.id,
+                    name: '',
+                    label: `ZFS: ${mount.source} (${mount.mountpoint})`,
+                    mountpoints: [mount.mountpoint],
+                    filesystem: mount.filesystem,
+                    source: mount.source,
+                });
+            }
+        } catch(e: any) {
+            Utils.error('Error reading mounted ZFS filesystems', e);
+        }
         return disks;
+    }
+
+    static async getFilesystemUsageAsync(
+        id: string,
+        cancellable?: Gio.Cancellable
+    ): Promise<FilesystemUsage | null> {
+        return sampleFilesystem(
+            id,
+            () => Utils.readFileAsync('/proc/self/mountinfo'),
+            target =>
+                new Promise((resolve, reject) => {
+                    const file = Gio.File.new_for_path(target.mountpoint);
+                    file.query_filesystem_info_async(
+                        'filesystem::type,filesystem::size,filesystem::used,filesystem::free',
+                        GLib.PRIORITY_DEFAULT,
+                        cancellable ?? null,
+                        (source, result) => {
+                            try {
+                                const info = source!.query_filesystem_info_finish(result);
+                                if(
+                                    info.get_attribute_string('filesystem::type') !== 'zfs' ||
+                                    !['size', 'used', 'free'].every(attribute =>
+                                        info.has_attribute(`filesystem::${attribute}`)
+                                    )
+                                ) {
+                                    resolve(null);
+                                    return;
+                                }
+                                resolve(
+                                    filesystemUsage(
+                                        info.get_attribute_uint64('filesystem::size'),
+                                        info.get_attribute_uint64('filesystem::used'),
+                                        info.get_attribute_uint64('filesystem::free')
+                                    )
+                                );
+                            } catch(e) {
+                                reject(e);
+                            }
+                        }
+                    );
+                })
+        );
     }
 
     static findDefaultDisk(disks: Map<string, DiskInfo>): string | null {

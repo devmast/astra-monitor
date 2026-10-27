@@ -241,7 +241,7 @@ export default GObject.registerClass(
                 }
 
                 const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
-                if(!usage || !usage.usePercentage || isNaN(usage.usePercentage)) return;
+                if(!usage || !Number.isFinite(usage.usePercentage)) return;
 
                 if(percentageThreshold > 0) {
                     if(usage.usePercentage < percentageThreshold) {
@@ -321,8 +321,7 @@ export default GObject.registerClass(
             if(!Config.get_boolean('storage-header-percentage')) return;
 
             const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
-            if(!usage || !usage.usePercentage || isNaN(usage.usePercentage))
-                this.percentage.text = '';
+            if(!usage || !Number.isFinite(usage.usePercentage)) this.percentage.text = '';
             else this.percentage.text = `${Math.round(usage.usePercentage)}%`;
         }
 
@@ -344,8 +343,9 @@ export default GObject.registerClass(
             const figures = Config.get_int('storage-header-value-figures');
 
             const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
-            if(!usage || !usage.used || isNaN(usage.used)) this.value.text = '-';
-            else this.value.text = `${Utils.formatBytes(usage.used, 'kB-KB', figures)}`;
+            if(!usage || !Number.isFinite(usage.used)) this.value.text = '-';
+            else
+                this.value.text = `${usage.used === 0 ? '0 B' : Utils.formatBytes(usage.used, 'kB-KB', figures)}`;
         }
 
         buildFree() {
@@ -366,8 +366,9 @@ export default GObject.registerClass(
             const figures = Config.get_int('storage-header-free-figures');
 
             const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
-            if(!usage || !usage.free || isNaN(usage.free)) this.free.text = '-';
-            else this.free.text = `${Utils.formatBytes(usage.free, 'kB-KB', figures)}`;
+            if(!usage || !Number.isFinite(usage.free)) this.free.text = '-';
+            else
+                this.free.text = `${usage.free === 0 ? '0 B' : Utils.formatBytes(usage.free, 'kB-KB', figures)}`;
         }
 
         buildIOBars() {
@@ -579,8 +580,7 @@ export default GObject.registerClass(
                 {
                     const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
                     if(Config.get_boolean('storage-header-tooltip-percentage')) {
-                        if(!usage || !usage.usePercentage || isNaN(usage.usePercentage))
-                            values.push('-');
+                        if(!usage || !Number.isFinite(usage.usePercentage)) values.push('-');
                         else values.push(`${Math.round(usage.usePercentage)}%`);
                     }
                 }
@@ -589,16 +589,22 @@ export default GObject.registerClass(
                     const figures = Config.get_int('storage-header-value-figures');
 
                     const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
-                    if(!usage || !usage.used || isNaN(usage.used)) values.push('-');
-                    else values.push(`${Utils.formatBytes(usage.used, 'kB-KB', figures)}`);
+                    if(!usage || !Number.isFinite(usage.used)) values.push('-');
+                    else
+                        values.push(
+                            `${usage.used === 0 ? '0 B' : Utils.formatBytes(usage.used, 'kB-KB', figures)}`
+                        );
                 }
 
                 if(Config.get_boolean('storage-header-tooltip-free')) {
                     const figures = Config.get_int('storage-header-free-figures');
 
                     const usage = Utils.storageMonitor.getCurrentValue('storageUsage');
-                    if(!usage || !usage.free || isNaN(usage.free)) values.push('-');
-                    else values.push(`${Utils.formatBytes(usage.free, 'kB-KB', figures)}`);
+                    if(!usage || !Number.isFinite(usage.free)) values.push('-');
+                    else
+                        values.push(
+                            `${usage.free === 0 ? '0 B' : Utils.formatBytes(usage.free, 'kB-KB', figures)}`
+                        );
                 }
 
                 if(Config.get_boolean('storage-header-tooltip-io')) {

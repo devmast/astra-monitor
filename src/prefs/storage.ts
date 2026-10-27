@@ -18,6 +18,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { isFilesystemId } from '../storage/filesystem.js';
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
 
@@ -139,7 +140,10 @@ export default class Storage {
             const disks = await Utils.listDisksAsync();
             const storageMain = Config.get_string('storage-main');
 
-            if(storageMain === '[default]' || !storageMain || !disks.has(storageMain)) {
+            if(
+                !isFilesystemId(storageMain) &&
+                (storageMain === '[default]' || !storageMain || !disks.has(storageMain))
+            ) {
                 const defaultId = Utils.findDefaultDisk(disks);
                 const currentStorageMain = Config.get_string('storage-main');
                 if(
@@ -153,6 +157,12 @@ export default class Storage {
             }
 
             const choicesSource = [];
+            if(isFilesystemId(storageMain) && !disks.has(storageMain!)) {
+                choicesSource.push({
+                    value: storageMain!,
+                    text: `${storageMain} (${_('Unavailable')})`,
+                });
+            }
             for(const [id, disk] of disks) {
                 let text;
                 if(disk.label && disk.name) text = disk.label + ' (' + disk.name + ')';

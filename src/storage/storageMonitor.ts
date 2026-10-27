@@ -19,6 +19,7 @@
  */
 
 import GLib from 'gi://GLib';
+import { isFilesystemId } from './filesystem.js';
 
 import Config from '../config.js';
 import Utils, { DiskInfo } from '../utils/utils.js';
@@ -300,6 +301,7 @@ export default class StorageMonitor extends Monitor {
 
     async checkMainDiskAsync(disks?: Map<string, DiskInfo>): Promise<string | null> {
         let storageMain = Config.get_string('storage-main');
+        if(isFilesystemId(storageMain)) return storageMain;
         const diskList = disks ?? (await Utils.listDisksAsync());
         if(!storageMain || storageMain === '[default]' || !diskList.has(storageMain)) {
             const defaultId = Utils.findDefaultDisk(diskList);
@@ -558,6 +560,24 @@ export default class StorageMonitor extends Monitor {
         );
     }
 
+    private async updateFilesystemUsage(id: string): Promise<boolean> {
+        const cancellable = this.updateStorageUsageTask.cancellable;
+        let usage = null;
+        try {
+            usage = await Utils.getFilesystemUsageAsync(id, cancellable);
+        } catch(_e) {
+            // Unmounted or inaccessible datasets are unavailable, not another disk.
+        }
+        if(cancellable.is_cancelled() || Config.get_string('storage-main') !== id) return false;
+        if(!usage) {
+            this.resetUsageHistory('storageUsage');
+            this.setUsageValue('storageUsage', null);
+            return false;
+        }
+        this.pushUsageHistory('storageUsage', usage);
+        return true;
+    }
+
     updateStorageUsageAuto(): Promise<boolean> {
         if(Utils.GTop) return this.updateStorageUsageGTop();
         return this.updateStorageUsageProc();
@@ -565,6 +585,7 @@ export default class StorageMonitor extends Monitor {
 
     async updateStorageUsageProc(): Promise<boolean> {
         let mainDisk = Config.get_string('storage-main');
+        if(isFilesystemId(mainDisk)) return this.updateFilesystemUsage(mainDisk!);
         const disks = await Utils.listDisksAsync(this.updateStorageUsageTask);
 
         try {
@@ -577,6 +598,7 @@ export default class StorageMonitor extends Monitor {
                 disk = disks.get(mainDisk || '');
             }
 
+            if(isFilesystemId(mainDisk)) return this.updateFilesystemUsage(mainDisk!);
             if(!disk || !disk.path) return false;
 
             const path = disk.path.replace(/[^a-zA-Z0-9/-]/g, '');
@@ -610,6 +632,8 @@ export default class StorageMonitor extends Monitor {
     }
 
     async updateStorageUsageGTop(): Promise<boolean> {
+        const selected = Config.get_string('storage-main');
+        if(isFilesystemId(selected)) return this.updateFilesystemUsage(selected!);
         const GTop = Utils.GTop;
         if(!GTop) return false;
 
@@ -617,6 +641,7 @@ export default class StorageMonitor extends Monitor {
         try {
             if(!mainDisk || mainDisk === '[default]') mainDisk = await this.checkMainDiskAsync();
             if(!mainDisk) return false;
+            if(isFilesystemId(mainDisk)) return this.updateFilesystemUsage(mainDisk);
 
             const disk = await this.getCachedDisk(mainDisk);
             const mountpoints = disk?.mountpoints;

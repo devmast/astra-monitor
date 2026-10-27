@@ -20,7 +20,8 @@
     "author": "Lju",
     "license": "GPL-3.0-or-later",
     "scripts": {
-        "format": "prettier --write --cache . && eslint --fix ."
+        "format": "prettier --write --cache . && eslint --fix .",
+        "test": "node --experimental-vm-modules tests/run.mjs"
     },
     "devDependencies": {
         "eslint": "^8.57.0",
@@ -29,6 +30,7 @@
         "@girs/gtop-2.0": "^2.0.0-4.0.0-beta.19",
         "@typescript-eslint/eslint-plugin": "^7.7.1",
         "@typescript-eslint/parser": "^7.7.1",
-        "prettier": "^3.2.5"
+        "prettier": "^3.2.5",
+        "typescript": "^5.7.2"
     }
 }
