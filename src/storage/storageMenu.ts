@@ -33,6 +33,16 @@ import MenuBase from '../menu.js';
 import StorageBars from './storageBars.js';
 import StorageGraph from './storageGraph.js';
 import StorageMonitor, { BlockDevice, BlockDeviceData } from './storageMonitor.js';
+import { ZfsPool } from './pools.js';
+
+type ZfsPoolInfo = {
+    container: InstanceType<typeof Grid>;
+    label: St.Label;
+    health: St.Label;
+    bar: InstanceType<typeof StorageBars>;
+    percentage: St.Label;
+    detail: St.Label;
+};
 
 type BlockDeviceInfo = {
     data: BlockDevice | null;
@@ -142,6 +152,9 @@ export default class StorageMenu extends MenuBase {
     private privilegedTopProcesses: boolean = false;
 
     private deviceSection!: InstanceType<typeof Grid>;
+    private poolSectionLabel!: St.Label;
+    private poolSection!: InstanceType<typeof Grid>;
+    private pools: Map<string, ZfsPoolInfo> = new Map();
     private noDevicesLabel!: St.Label;
 
     private devices!: Map<string, BlockDeviceInfo>;
@@ -158,6 +171,7 @@ export default class StorageMenu extends MenuBase {
         /*this.storageSectionLabel = */ this.addMenuSection(_('Storage'));
         this.createActivitySection();
         this.addTopProcesses();
+        this.createZfsPoolList();
         this.createDeviceList();
 
         this.addUtilityButtons();
@@ -513,6 +527,67 @@ export default class StorageMenu extends MenuBase {
         this.topProcessesPopup.addToMenu(grid, 2);
     }
 
+    createZfsPoolList() {
+        this.poolSectionLabel = this.addMenuSection(_('ZFS Pools'));
+        this.poolSection = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
+        this.addToMenu(this.poolSection, 2);
+        this.poolSectionLabel.hide();
+        this.poolSection.hide();
+    }
+
+    updateZfsPools(pools: ZfsPool[]) {
+        const names = new Set(pools.map(pool => pool.name));
+        for(const [name, row] of this.pools) {
+            if(!names.has(name)) {
+                row.container.destroy();
+                this.pools.delete(name);
+            }
+        }
+        this.poolSectionLabel.visible = pools.length > 0;
+        this.poolSection.visible = pools.length > 0;
+        for(const pool of pools) {
+            let row = this.pools.get(pool.name);
+            if(!row) {
+                const container = new Grid({
+                    styleClass: 'astra-monitor-menu-subgrid',
+                    style: 'padding-top:0.3em;margin-bottom:0.3em;',
+                });
+                const label = new St.Label({
+                    text: pool.name,
+                    xExpand: true,
+                    styleClass: 'astra-monitor-menu-label',
+                });
+                const health = new St.Label({ styleClass: 'astra-monitor-menu-key-mid' });
+                container.addToGrid(label);
+                container.addToGrid(health);
+                const bar = new StorageBars({
+                    numBars: 1,
+                    width: 200,
+                    height: 0.5,
+                    mini: false,
+                    layout: 'horizontal',
+                    style: 'border:solid 1px #555;',
+                });
+                const percentage = new St.Label({ styleClass: 'astra-monitor-menu-label' });
+                container.addToGrid(bar);
+                container.addToGrid(percentage);
+                const detail = new St.Label({ styleClass: 'astra-monitor-menu-key-mid' });
+                container.addToGrid(detail, 2);
+                this.poolSection.addToGrid(container, 2);
+                row = { container, label, health, bar, percentage, detail };
+                this.pools.set(pool.name, row);
+            }
+            row.health.text = pool.health;
+            row.percentage.text = `${pool.capacity}%`;
+            row.bar.setUsage({
+                size: pool.size,
+                usePercentage: pool.capacity,
+            });
+            const bytes = (value: number) => value === 0 ? '0 B' : Utils.formatBytes(value, 'kB-KB', 3);
+            row.detail.text = `${bytes(pool.allocated)} / ${bytes(pool.size)} ${_('allocated')} · ${bytes(pool.free)} ${_('free')}`;
+        }
+    }
+
     createDeviceList() {
         if(this.deviceSection === undefined) {
             this.addMenuSection(_('Devices'));
@@ -542,8 +617,12 @@ export default class StorageMenu extends MenuBase {
         if(!this.isOpen) return;
 
         const generation = ++this.deviceListGeneration;
-        const devices = await Utils.getBlockDevicesAsync();
+        const [devices, pools] = await Promise.all([
+            Utils.getBlockDevicesAsync(),
+            Utils.getZfsPoolsAsync(),
+        ]);
         if(!this.isOpen || generation !== this.deviceListGeneration) return;
+        this.updateZfsPools(pools);
 
         if(devices.size > 0) this.noDevicesLabel.hide();
         else this.noDevicesLabel.show();
@@ -1692,6 +1771,8 @@ export default class StorageMenu extends MenuBase {
             this.devicesTotalsPopup.delete(id);
         }
 
+        this.poolSection?.destroy();
+        this.pools.clear();
         this.deviceSection?.destroy();
         this.deviceSection = undefined as any;
 

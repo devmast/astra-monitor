@@ -20,9 +20,33 @@ collapsed, while distinct mountpoints remain independently selectable. Dataset
 IDs encode source and mountpoint in a separate namespace and persist in the
 existing settings/profile mechanism. Existing block-device IDs are unchanged.
 
-ZFS always uses asynchronous GIO filesystem queries, even if the configured
+ZFS dataset capacity always uses asynchronous GIO filesystem queries, even if the configured
 source is `GTop` or `lsblk`. No ZFS utility, optional libgtop, or root access is
-required for capacity. Conventional filesystems keep their existing collectors.
+required for dataset capacity. Conventional filesystems keep their existing collectors.
+
+## Pool capacity in the storage menu
+
+The Storage menu also has a **ZFS Pools** section for each imported pool. Each
+row shows the pool name, health, allocation bar and percentage, allocated/total
+bytes, and free bytes. It refreshes with the device list while the menu is open,
+independently of the selected Main Disk dataset.
+
+This section uses `zpool list -H -p -o name,size,alloc,free,capacity,health`.
+The `zpool` executable must be on GNOME Shell's PATH and usable by your regular
+user. No sudo, privilege escalation, or pool changes are performed. If the tool
+is absent or the query fails, the section is hidden and old samples are cleared.
+Malformed or unavailable capacity values are omitted.
+
+Pool allocation includes snapshots and metadata. Pool free space is raw pool
+space, rather than space available to a particular dataset after quotas,
+reservations, or ZFS accounting. These values intentionally differ from the
+mounted dataset figures in the main indicator. Physical device rows retain
+their existing usage and I/O behavior; pool rows do not invent per-pool I/O.
+
+To verify, open Storage and compare both pool rows with the command above.
+Close and reopen the menu after importing/exporting a disposable test pool;
+its row should appear/disappear. Existing mounted conventional filesystems
+should retain their capacity bars.
 
 ## Capacity semantics
 

@@ -33,6 +33,7 @@ import CancellableTaskManager from './cancellableTaskManager.js';
 import CommandSubprocess from './commandSubprocess.js';
 import CommandHelper from './commandHelper.js';
 import XMLParser from './xmlParser.js';
+import { parseZfsPools, ZfsPool } from '../storage/pools.js';
 import {
     FilesystemUsage,
     filesystemUsage,
@@ -2587,6 +2588,20 @@ export default class Utils {
         } catch(e: any) {
             Utils.error('Error getting network routes', e);
             return routes;
+        }
+    }
+
+    static async getZfsPoolsAsync(): Promise<ZfsPool[]> {
+        try {
+            const program = GLib.find_program_in_path('zpool');
+            if(!program) return [];
+            const output = await Utils.runAsyncCommand(
+                `${GLib.shell_quote(program)} list -H -p -o name,size,alloc,free,capacity,health`
+            );
+            return parseZfsPools(output);
+        } catch(_e) {
+            // Optional on non-ZFS hosts. Clear stale rows if pools become inaccessible.
+            return [];
         }
     }
 
