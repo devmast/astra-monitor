@@ -33,7 +33,7 @@ import CancellableTaskManager from './cancellableTaskManager.js';
 import CommandSubprocess from './commandSubprocess.js';
 import CommandHelper from './commandHelper.js';
 import XMLParser from './xmlParser.js';
-import { parseZfsPools, ZfsPool } from '../storage/pools.js';
+import { parseZfsPools, parseZfsAccounting, parseZfsMembers, ZfsPool } from '../storage/pools.js';
 import {
     FilesystemUsage,
     filesystemUsage,
@@ -2598,7 +2598,22 @@ export default class Utils {
             const output = await Utils.runAsyncCommand(
                 `${GLib.shell_quote(program)} list -H -p -o name,size,alloc,free,capacity,health`
             );
-            return parseZfsPools(output);
+            const pools = parseZfsPools(output);
+            if(pools.length === 0) return pools;
+            const zfs = GLib.find_program_in_path('zfs');
+            const [status, datasets] = await Promise.all([
+                Utils.runAsyncCommandOptional(`${GLib.shell_quote(program)} status -L -P`),
+                zfs ? Utils.runAsyncCommandOptional(
+                    `${GLib.shell_quote(zfs)} list -H -p -t filesystem,volume -o name,used,usedbysnapshots,usedbydataset,usedbyrefreservation`
+                ) : Promise.resolve(null),
+            ]);
+            const members = parseZfsMembers(status ?? '');
+            const accounting = parseZfsAccounting(datasets ?? '');
+            for(const pool of pools) {
+                pool.members = members.get(pool.name);
+                pool.accounting = accounting.get(pool.name);
+            }
+            return pools;
         } catch(_e) {
             // Optional on non-ZFS hosts. Clear stale rows if pools become inaccessible.
             return [];

@@ -37,6 +37,10 @@ import { ZfsPool } from './pools.js';
 
 type ZfsPoolInfo = {
     container: InstanceType<typeof Grid>;
+    members: St.BoxLayout;
+    memberPaths: string[];
+    popup: MenuBase;
+    size: St.Label;
     label: St.Label;
     health: St.Label;
     bar: InstanceType<typeof StorageBars>;
@@ -152,7 +156,6 @@ export default class StorageMenu extends MenuBase {
     private privilegedTopProcesses: boolean = false;
 
     private deviceSection!: InstanceType<typeof Grid>;
-    private poolSectionLabel!: St.Label;
     private poolSection!: InstanceType<typeof Grid>;
     private pools: Map<string, ZfsPoolInfo> = new Map();
     private noDevicesLabel!: St.Label;
@@ -528,10 +531,7 @@ export default class StorageMenu extends MenuBase {
     }
 
     createZfsPoolList() {
-        this.poolSectionLabel = this.addMenuSection(_('ZFS Pools'));
         this.poolSection = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
-        this.addToMenu(this.poolSection, 2);
-        this.poolSectionLabel.hide();
         this.poolSection.hide();
     }
 
@@ -539,58 +539,148 @@ export default class StorageMenu extends MenuBase {
         const names = new Set(pools.map(pool => pool.name));
         for(const [name, row] of this.pools) {
             if(!names.has(name)) {
+                // Member widgets belong to the device map: preserve them even
+                // if a pool disappears or the optional membership query fails.
+                for(const device of this.devices.values()) {
+                    if(device.container.get_parent() === row.members) {
+                        row.members.remove_child(device.container);
+                        this.deviceSection.addToGrid(device.container, 2);
+                    }
+                }
+                row.popup.destroy();
                 row.container.destroy();
                 this.pools.delete(name);
             }
         }
-        this.poolSectionLabel.visible = pools.length > 0;
         this.poolSection.visible = pools.length > 0;
         for(const pool of pools) {
             let row = this.pools.get(pool.name);
             if(!row) {
-                const container = new Grid({
-                    styleClass: 'astra-monitor-menu-subgrid',
-                    style: 'padding-top:0.3em;margin-bottom:0.3em;',
-                });
-                const label = new St.Label({
-                    text: pool.name,
-                    xExpand: true,
-                    styleClass: 'astra-monitor-menu-label',
-                });
-                const health = new St.Label({ styleClass: 'astra-monitor-menu-key-mid' });
-                container.addToGrid(label);
-                container.addToGrid(health);
-                const bar = new StorageBars({
-                    numBars: 1,
-                    width: 200,
-                    height: 0.5,
-                    mini: false,
-                    layout: 'horizontal',
-                    style: 'border:solid 1px #555;',
-                });
-                const percentage = new St.Label({ styleClass: 'astra-monitor-menu-label' });
-                container.addToGrid(bar);
-                container.addToGrid(percentage);
-                const detail = new St.Label({ styleClass: 'astra-monitor-menu-key-mid' });
-                container.addToGrid(detail, 2);
-                this.poolSection.addToGrid(container, 2);
-                row = { container, label, health, bar, percentage, detail };
+                row = this.createZfsPool(pool.name);
+                this.poolSection.addToGrid(row.container, 2);
                 this.pools.set(pool.name, row);
             }
+            row.memberPaths = pool.members ?? [];
             row.health.text = pool.health;
+            row.size.text = Utils.formatBytes(pool.size, 'kB-KB', 3);
             row.percentage.text = `${pool.capacity}%`;
-            row.bar.setUsage({
-                size: pool.size,
-                usePercentage: pool.capacity,
-            });
+            row.bar.setPoolUsage(pool);
             const bytes = (value: number) => value === 0 ? '0 B' : Utils.formatBytes(value, 'kB-KB', 3);
-            row.detail.text = `${bytes(pool.allocated)} / ${bytes(pool.size)} ${_('allocated')} · ${bytes(pool.free)} ${_('free')}`;
+            const lines = [
+                `${_('Total')}: ${bytes(pool.size)}`,
+                `${_('Allocated')}: ${bytes(pool.allocated)}`,
+                `${_('Free')}: ${bytes(pool.free)}`,
+            ];
+            if(pool.accounting) {
+                const a = pool.accounting;
+                lines.push('', _('Dataset accounting'),
+                    `${_('Data')}: ${bytes(a.data)}`,
+                    `${_('Snapshots')}: ${bytes(a.snapshots)}`,
+                    `${_('Refreservations')}: ${bytes(a.reservations)}`,
+                    `${_('Other accounting')}: ${bytes(a.other)}`,
+                    '', _('Amber: snapshot share of dataset-accounted usage.'),
+                    _('Overall fill: physical pool allocation.'),
+                    _('Dataset accounting can differ from physical allocation.'));
+            } else {
+                lines.push('', _('Snapshot breakdown unavailable'));
+            }
+            if(row.memberPaths.length) lines.push('', _('Member devices'), ...row.memberPaths);
+            row.detail.text = lines.join('\n');
+        }
+    }
+
+    createZfsPool(name: string): ZfsPoolInfo {
+        const container = new Grid({
+            styleClass: 'astra-monitor-menu-subgrid',
+            style: 'padding-top:0.3em;margin-bottom:0.3em;',
+        });
+        const button = new St.Button({ reactive: true, trackHover: true });
+        const info = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
+        button.set_child(info);
+        const header = new Grid({ numCols: 3, styleClass: 'astra-monitor-menu-subgrid' });
+        header.addToGrid(new St.Icon({
+            gicon: Utils.getLocalIcon('am-raid-symbolic'),
+            fallbackIconName: 'drive-harddisk-symbolic',
+            styleClass: 'astra-monitor-menu-icon',
+            style: 'padding-left:0.25em;',
+        }));
+        const label = new St.Label({ text: name, styleClass: 'astra-monitor-menu-label' });
+        const health = new St.Label({ xExpand: true, styleClass: 'astra-monitor-menu-key-mid' });
+        header.addToGrid(label);
+        header.addToGrid(health);
+        info.addToGrid(header, 2);
+
+        // Same size / bar / percentage grid as the physical-device rows.
+        const gauge = new St.Widget({
+            layoutManager: new Clutter.GridLayout({ orientation: Clutter.Orientation.VERTICAL }),
+        });
+        const size = new St.Label({
+            yAlign: Clutter.ActorAlign.CENTER, styleClass: 'astra-monitor-menu-key-mid',
+        });
+        const bar = new StorageBars({
+            numBars: 1, layers: 2, width: 160 - 2 - 4, height: 0.5,
+            mini: false, layout: 'horizontal', xAlign: Clutter.ActorAlign.START,
+            style: 'margin-left:0;margin-bottom:0;margin-right:0;border:solid 1px #555;',
+        });
+        const percentage = new St.Label({
+            yAlign: Clutter.ActorAlign.END,
+            style: 'width:2.7em;font-size:0.8em;text-align:right;margin-right:0.25em;margin-top:0.2em;',
+        });
+        (gauge.layoutManager as any).attach(size, 0, 0, 1, 1);
+        (gauge.layoutManager as any).attach(bar, 1, 0, 1, 1);
+        (gauge.layoutManager as any).attach(percentage, 2, 0, 1, 1);
+        info.addToGrid(gauge, 2);
+        container.addToGrid(button, 2);
+
+        const popup = new MenuBase(button, 0.05, { numCols: 2 });
+        popup.addMenuSection(name);
+        popup.addToMenu(new St.Label({
+            text: _('Data / other'),
+            style: `color:${Config.get_string('storage-menu-device-color') ?? 'rgba(29,172,214,1.0)'};`,
+        }));
+        popup.addToMenu(new St.Label({ text: _('Snapshots'), style: 'color:rgba(238,172,73,1.0);' }));
+        const detail = new St.Label({ style: 'text-align:left;' });
+        popup.addToMenu(detail, 2);
+        button.connect('enter-event', () => {
+            button.style = this.selectionStyle;
+            popup.open(AnimationUtils.getMenuParams(true));
+        });
+        button.connect('leave-event', () => {
+            button.style = '';
+            popup.close(AnimationUtils.getMenuParams(true));
+        });
+        const members = new St.BoxLayout({ vertical: true, xExpand: true });
+        container.addToGrid(members, 2);
+        return { container, members, memberPaths: [], popup, size, label, health, bar, percentage, detail };
+    }
+
+    groupPoolDevices(devices: Map<string, BlockDevice>) {
+        const owners = new Map<string, ZfsPoolInfo | null>();
+        for(const pool of this.pools.values()) {
+            for(const path of pool.memberPaths) {
+                // Ambiguous ownership must never hide or mislabel a device.
+                owners.set(path, owners.has(path) ? null : pool);
+            }
+        }
+        for(const [id, device] of this.devices) {
+            const data = devices.get(id);
+            const owner = data?.path ? owners.get(data.path) : undefined;
+            const target = owner?.members ?? this.deviceSection;
+            if(device.container.get_parent() !== target) {
+                device.container.get_parent()?.remove_child(device.container);
+                if(owner) owner.members.add_child(device.container);
+                else this.deviceSection.addToGrid(device.container, 2);
+            }
+            device.container.style = 'padding-top:0.3em;margin-bottom:0.3em;' +
+                (owner ? 'margin-left:1em;' : '');
+            if(owner && data?.label === owner.label.text) device.label.text = _('Member disk');
         }
     }
 
     createDeviceList() {
         if(this.deviceSection === undefined) {
             this.addMenuSection(_('Devices'));
+            this.addToMenu(this.poolSection, 2);
 
             this.deviceSection = new Grid({ styleClass: 'astra-monitor-menu-subgrid' });
             this.noDevicesLabel = new St.Label({
@@ -624,7 +714,7 @@ export default class StorageMenu extends MenuBase {
         if(!this.isOpen || generation !== this.deviceListGeneration) return;
         this.updateZfsPools(pools);
 
-        if(devices.size > 0) this.noDevicesLabel.hide();
+        if(devices.size > 0 || pools.length > 0) this.noDevicesLabel.hide();
         else this.noDevicesLabel.show();
 
         //filter ignored devices
@@ -723,6 +813,7 @@ export default class StorageMenu extends MenuBase {
                 Utils.error('Error updating storage device info', e);
             }
         }
+        this.groupPoolDevices(devices);
     }
 
     createBlockDevice(id: string): BlockDeviceInfo {
@@ -1306,6 +1397,7 @@ export default class StorageMenu extends MenuBase {
     }
 
     onClose() {
+        for(const pool of this.pools.values()) pool.popup.close(AnimationUtils.getMenuParams(true));
         super.onClose();
         this.deviceListGeneration++;
         this.stopPrivilegedTopProcesses();
@@ -1771,6 +1863,7 @@ export default class StorageMenu extends MenuBase {
             this.devicesTotalsPopup.delete(id);
         }
 
+        for(const pool of this.pools.values()) pool.popup.destroy();
         this.poolSection?.destroy();
         this.pools.clear();
         this.deviceSection?.destroy();

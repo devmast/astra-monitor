@@ -2,3 +2,4 @@
 import './storage-filesystem.test.mjs';
 import './storage-integration.test.mjs';
 import './storage-pools.test.mjs';
+import './storage-breakdown.test.mjs';

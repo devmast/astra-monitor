@@ -23,6 +23,7 @@ import GObject from 'gi://GObject';
 import BarsBase, { BarProps } from '../bars.js';
 import { StorageUsage } from './storageMonitor.js';
 import Config from '../config.js';
+import { poolGaugeSegments, ZfsPool } from './pools.js';
 
 type StorageBarsParams = BarProps & {
     /* empty */
@@ -44,7 +45,14 @@ export default GObject.registerClass(
         override setStyle() {
             super.setStyle();
 
-            this.colors = [Config.get_string(this.colorConfig) ?? 'rgba(29,172,214,1.0)'];
+            this.colors = [
+                Config.get_string(this.colorConfig) ?? 'rgba(29,172,214,1.0)',
+                'rgba(238,172,73,1.0)',
+            ];
+        }
+
+        setPoolUsage(pool: ZfsPool) {
+            this.updateBars([poolGaugeSegments(pool)]);
         }
 
         setUsage(usage: StorageUsage | null) {

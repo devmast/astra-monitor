@@ -26,27 +26,55 @@ required for dataset capacity. Conventional filesystems keep their existing coll
 
 ## Pool capacity in the storage menu
 
-The Storage menu also has a **ZFS Pools** section for each imported pool. Each
-row shows the pool name, health, allocation bar and percentage, allocated/total
-bytes, and free bytes. It refreshes with the device list while the menu is open,
-independently of the selected Main Disk dataset.
+Imported pools appear with the other entries under **Devices**, using the same
+icon and total-capacity / gauge / percentage alignment. Positively identified
+member disks are indented beneath each pool, retaining their physical read/write
+rates and device details. Devices with unknown or ambiguous membership stay in
+the ordinary list; no association is guessed from a label. Membership comes
+from `zpool status -L -P`.
 
-This section uses `zpool list -H -p -o name,size,alloc,free,capacity,health`.
-The `zpool` executable must be on GNOME Shell's PATH and usable by your regular
-user. No sudo, privilege escalation, or pool changes are performed. If the tool
-is absent or the query fails, the section is hidden and old samples are cleared.
-Malformed or unavailable capacity values are omitted.
+The gauge's total fill is physical pool allocation (`alloc / size`). The normal
+storage color represents data/other accounting; amber represents the snapshot
+share of dataset-accounted usage. Hover over a pool to see the legend, exact
+pool allocated/total/free bytes, health, dataset data, snapshots, refreservations,
+other accounting, and member paths. No additional detail lines widen the main
+menu.
 
-Pool allocation includes snapshots and metadata. Pool free space is raw pool
-space, rather than space available to a particular dataset after quotas,
-reservations, or ZFS accounting. These values intentionally differ from the
-mounted dataset figures in the main indicator. Physical device rows retain
-their existing usage and I/O behavior; pool rows do not invent per-pool I/O.
+The read-only commands are:
 
-To verify, open Storage and compare both pool rows with the command above.
-Close and reopen the menu after importing/exporting a disposable test pool;
-its row should appear/disappear. Existing mounted conventional filesystems
-should retain their capacity bars.
+```sh
+zpool list -H -p -o name,size,alloc,free,capacity,health
+zpool status -L -P
+zfs list -H -p -t filesystem,volume -o name,used,usedbysnapshots,usedbydataset,usedbyrefreservation
+```
+
+`zpool` and (for the breakdown) `zfs` must be on GNOME Shell's PATH, usable by
+your regular user. No sudo, privilege escalation, or storage changes are used.
+Missing pool capacity hides the pool rows. Missing or invalid accounting retains
+the single-color allocation gauge and labels the breakdown unavailable, rather
+than reporting zero snapshots. Rows refresh while the menu is open.
+
+Snapshot usage comes from each filesystem/volume's own `usedbysnapshots`, summed
+once per pool. Individual snapshot `used` values cannot simply be added because
+snapshots share blocks. Recursive dataset `used` values cannot be summed either;
+the root dataset's `used` is the accounting total. Each dataset's own
+`usedbydataset` and `usedbyrefreservation` are summed; the remaining root-accounted
+space is labeled other accounting, not assumed to be metadata.
+
+Dataset-accounted usage can differ from physical pool allocation due to
+reservations, redundancy, metadata, and ZFS accounting. The amber segment is
+therefore a proportional share within the allocation fill:
+`(alloc / size) * (accounted snapshots / root used)`. It does not claim that
+snapshot-accounted bytes are raw physical bytes. The hover explains this and
+shows the exact independent values. Pool free space also differs from dataset
+availability after quotas/reservations. Pool rows do not invent per-pool I/O.
+
+To verify, open Storage and compare pool allocation, hover accounting, and member
+paths with the commands above. Both pools should have an amber snapshot segment
+when accounting is available and snapshots use space. Close/reopen after
+importing/exporting a disposable test pool; its row should appear/disappear and
+member widgets must remain valid. Conventional filesystem gauges and physical
+I/O rows should retain their behavior.
 
 ## Capacity semantics
 
