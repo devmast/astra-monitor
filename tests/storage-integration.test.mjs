@@ -16,6 +16,7 @@ async function platformModule(path, overrides) {
     );
     mocks['./filesystem.js'] = filesystem;
     mocks['../storage/filesystem.js'] = filesystem;
+    mocks['../storage/pools.js'] = await loadModule('../src/storage/pools.ts');
     return loadModule(path, { ...mocks, ...overrides });
 }
 const { default: Utils } = await platformModule('../src/utils/utils.ts', {});
