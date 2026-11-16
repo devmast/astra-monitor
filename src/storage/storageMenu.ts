@@ -28,6 +28,7 @@ import { gettext as _, pgettext } from 'resource:///org/gnome/shell/extensions/e
 import Grid from '../grid.js';
 import Utils from '../utils/utils.js';
 import AnimationUtils from '../utils/animationUtils.js';
+import ShellCompat from '../utils/shellCompat.js';
 import Config from '../config.js';
 import MenuBase from '../menu.js';
 import StorageBars from './storageBars.js';
@@ -649,7 +650,7 @@ export default class StorageMenu extends MenuBase {
             button.style = '';
             popup.close(AnimationUtils.getMenuParams(true));
         });
-        const members = new St.BoxLayout({ vertical: true, xExpand: true });
+        const members = new St.BoxLayout({ ...ShellCompat.getBoxLayoutParams(true), xExpand: true });
         container.addToGrid(members, 2);
         return { container, members, memberPaths: [], popup, size, label, health, bar, percentage, detail };
     }

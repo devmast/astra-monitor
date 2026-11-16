@@ -113,18 +113,31 @@ test('Devices refresh renders both pools, updates allocation, and removes vanish
         formatBytes: value => `${value} B`,
         getLocalIcon: () => ({}),
     };
+    const clutter = {
+        ActorAlign: { CENTER: 0, START: 1, END: 2 },
+        Orientation: { VERTICAL: 0, HORIZONTAL: 1 },
+        GridLayout: class { attach() {} },
+    };
+    const { default: ShellCompat } = await loadModule('../src/utils/shellCompat.ts', {
+        'gi://Clutter': { default: clutter },
+        'resource:///org/gnome/shell/misc/config.js': { PACKAGE_VERSION: '51.1' },
+    });
+    class ModernBoxLayout extends Widget {
+        constructor(props) {
+            assert.equal('vertical' in props, false, 'GNOME 51 removed St.BoxLayout.vertical');
+            assert.equal(props.orientation, clutter.Orientation.VERTICAL);
+            super(props);
+        }
+    }
     const { default: StorageMenu } = await platformModule('../src/storage/storageMenu.ts', {
         '../utils/utils.js': { default: utils },
         '../config.js': { default: { get_json: () => [], get_string: () => '' } },
         '../grid.js': { default: Widget },
         './storageBars.js': { default: Widget },
         '../menu.js': { default: Widget },
-        'gi://St': { default: { Label: Widget, Widget, Icon: Widget, Button: Widget, BoxLayout: Widget } },
-        'gi://Clutter': { default: {
-            ActorAlign: { CENTER: 0, START: 1, END: 2 },
-            Orientation: { VERTICAL: 0 },
-            GridLayout: class { attach() {} },
-        } },
+        '../utils/shellCompat.js': { default: ShellCompat },
+        'gi://St': { default: { Label: Widget, Widget, Icon: Widget, Button: Widget, BoxLayout: ModernBoxLayout } },
+        'gi://Clutter': { default: clutter },
         'resource:///org/gnome/shell/extensions/extension.js': {
             gettext: value => value, pgettext: (_context, value) => value,
         },
